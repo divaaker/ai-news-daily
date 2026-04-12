@@ -5,22 +5,16 @@ env:
 
 on:
   schedule:
-    # 8 AM IST = 2:30 AM UTC (cron uses UTC)
     - cron: '30 2 * * *'
-  
-  # Allow manual trigger
   workflow_dispatch:
 
 jobs:
   generate-content:
     runs-on: ubuntu-latest
-    
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
       
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
       
@@ -35,23 +29,12 @@ jobs:
           CLAUDE_API_KEY: ${{ secrets.CLAUDE_API_KEY }}
           NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
           NOTION_DB_ID: ${{ secrets.NOTION_DB_ID }}
-        run: |
-          echo "Starting AI News Pipeline..."
-          python ai_news_pipeline.py
-          echo "Pipeline execution completed"
+        run: python ai_news_pipeline.py
       
-      - name: Check output directory
-        if: always()
-        run: |
-          echo "Checking if output directory exists..."
-          if [ -d "output" ]; then
-            echo "✅ Output directory found"
-            ls -la output/
-          else
-            echo "❌ Output directory not created"
-            echo "Pipeline may have failed - check logs above"
-          fi
-      
-      - name: Upload output artifacts
+      - name: Upload artifacts
         if: success()
-        uses: actions/upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: ai-news-output
+          path: output/
+          retention-days: 7
