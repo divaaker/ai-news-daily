@@ -54,17 +54,4 @@ jobs:
       
       - name: Upload output artifacts
         if: success()
-        uses: actions/upload-artifact@v4
-        with:
-          name: ai-news-output-${{ github.run_number }}
-          path: output/
-          retention-days: 7
-      
-      - name: Commit and push if changed
-        if: success()
-        run: |
-          git config --global user.name "AI News Bot"
-          git config --global user.email "bot@example.com"
-          git add -A || true
-          git commit -m "🤖 Daily AI news generated - $(date +'%Y-%m-%d')" || echo "No changes to commit"
-          git push || echo "Nothing to push"
+        uses: actions/upload
