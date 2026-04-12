@@ -13,21 +13,15 @@ from PIL import Image, ImageDraw, ImageFont
 import textwrap
 
 # Initialize clients
-newsapi_key = os.getenv("NEWSAPI_KEY")
 claude_api_key = os.getenv("CLAUDE_API_KEY")
 notion_token = os.getenv("NOTION_TOKEN")
-notion_db_id = os.getenv("NOTION_DB_ID")  # 91fd1aa2-22b3-492b-b517-e8d5dcd11281
+notion_db_id = os.getenv("NOTION_DB_ID")
 
-client = Anthropic()
+client = Anthropic(api_key=claude_api_key)
 
-# Best AI/Tech news sources
-NEWS_SOURCES = [
-    "techcrunch",
-    "the-verge",
-    "hacker-news",
-    "ars-technica",
-    "wired"
-]
+# HackerNews API (free, no authentication needed)
+HACKERNEWS_API = "https://hacker-news.firebaseio.com/v0"
+AI_KEYWORDS = ["AI", "machine learning", "LLM", "ChatGPT", "Claude", "neural", "algorithm", "data science", "GPT"]
 
 class AINewsPipeline:
     def __init__(self):
@@ -36,48 +30,52 @@ class AINewsPipeline:
         os.makedirs(self.output_dir, exist_ok=True)
         
     def fetch_news(self):
-        """Fetch top AI/tech story from NewsAPI"""
-        print("📰 Fetching news from NewsAPI...")
-        
-        query = "artificial intelligence OR AI OR machine learning OR LLM OR ChatGPT OR Claude"
-        sources = ",".join(NEWS_SOURCES)
-        
-        url = "https://newsapi.org/v2/everything"
-        params = {
-            "q": query,
-            "sources": sources,
-            "sortBy": "publishedAt",
-            "language": "en",
-            "pageSize": 5,
-            "apiKey": newsapi_key
-        }
+        """Fetch AI/tech story from HackerNews"""
+        print("📰 Fetching news from HackerNews...")
         
         try:
-            response = requests.get(url, params=params, timeout=10)
+            # Get top stories
+            response = requests.get(f"{HACKERNEWS_API}/topstories.json", timeout=10)
             response.raise_for_status()
-            articles = response.json().get("articles", [])
+            story_ids = response.json()[:30]  # Top 30 stories
             
-            if not articles:
-                print("⚠️  No articles found. Retrying with broader query...")
-                params["q"] = "AI OR technology"
-                response = requests.get(url, params=params, timeout=10)
-                articles = response.json().get("articles", [])
+            # Find first AI/tech related story
+            for story_id in story_ids:
+                item_response = requests.get(f"{HACKERNEWS_API}/item/{story_id}.json", timeout=10)
+                item = item_response.json()
+                
+                if not item or item.get("deleted") or item.get("dead"):
+                    continue
+                
+                title = item.get("title", "").lower()
+                
+                # Check if it matches AI/tech keywords
+                if any(keyword.lower() in title for keyword in AI_KEYWORDS):
+                    story = {
+                        "title": item.get("title", ""),
+                        "description": f"Story from HackerNews with {item.get('score', 0)} points and {item.get('descendants', 0)} comments",
+                        "source": "HackerNews",
+                        "url": item.get("url", f"https://news.ycombinator.com/item?id={story_id}"),
+                        "image": "",
+                        "content": item.get("text", "")
+                    }
+                    print(f"✅ Found: {story['title']}")
+                    return story
             
-            # Return top article
-            if articles:
-                story = articles[0]
-                print(f"✅ Found: {story['title']}")
-                return {
-                    "title": story.get("title", ""),
-                    "description": story.get("description", ""),
-                    "source": story.get("source", {}).get("name", ""),
-                    "url": story.get("url", ""),
-                    "image": story.get("urlToImage", ""),
-                    "content": story.get("content", "")
-                }
-            else:
-                print("❌ No articles found")
-                return None
+            # Fallback: return any top story
+            item_response = requests.get(f"{HACKERNEWS_API}/item/{story_ids[0]}.json", timeout=10)
+            item = item_response.json()
+            
+            story = {
+                "title": item.get("title", ""),
+                "description": f"Top story on HackerNews",
+                "source": "HackerNews",
+                "url": item.get("url", f"https://news.ycombinator.com/item?id={story_ids[0]}"),
+                "image": "",
+                "content": item.get("text", "")
+            }
+            print(f"✅ Found: {story['title']}")
+            return story
                 
         except Exception as e:
             print(f"❌ Error fetching news: {e}")
@@ -159,14 +157,10 @@ Generate ONLY the caption with hashtags.
         print("🎨 Generating PNG image...")
         
         try:
-            # Create image with gradient-like background
             width, height = 1080, 1350  # Instagram post size
-            
-            # Create image with dark background
             img = Image.new('RGB', (width, height), color='#1a1a1a')
             draw = ImageDraw.Draw(img)
             
-            # Try to use a nice font, fallback to default
             try:
                 title_font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 48)
                 text_font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 36)
@@ -174,23 +168,18 @@ Generate ONLY the caption with hashtags.
             except:
                 title_font = text_font = source_font = ImageFont.load_default()
             
-            # Add colored top bar
-            draw.rectangle([(0, 0), (width, 150)], fill='#ff6b35')  # Orange
+            draw.rectangle([(0, 0), (width, 150)], fill='#ff6b35')
             
-            # Title
             title = story['title']
             wrapped_title = textwrap.fill(title, width=25)
             draw.text((40, 200), wrapped_title, fill='#ffffff', font=title_font)
             
-            # Source and date
             source_text = f"Source: {story['source']} | {self.timestamp}"
             draw.text((40, 700), source_text, fill='#888888', font=source_font)
             
-            # AI quote at bottom
             ai_quote = "🤖 AI is reshaping the future, one innovation at a time."
             draw.text((40, 1200), ai_quote, fill='#ff6b35', font=text_font)
             
-            # Save image
             image_path = f"{self.output_dir}/ai_news_image.png"
             img.save(image_path)
             print(f"✅ Image saved: {image_path}")
@@ -261,7 +250,6 @@ Generate ONLY the caption with hashtags.
         print("💾 Saving local files...")
         
         try:
-            # Reddit post
             with open(f"{self.output_dir}/reddit_post.txt", "w") as f:
                 f.write(f"Title: {story['title']}\n")
                 f.write(f"Source: {story['source']}\n")
@@ -269,11 +257,9 @@ Generate ONLY the caption with hashtags.
                 f.write("---REDDIT POST---\n\n")
                 f.write(reddit_post)
             
-            # Instagram caption
             with open(f"{self.output_dir}/instagram_caption.txt", "w") as f:
                 f.write(instagram_caption)
             
-            # Summary JSON
             summary = {
                 "date": self.timestamp,
                 "title": story['title'],
@@ -296,13 +282,11 @@ Generate ONLY the caption with hashtags.
         print("\n🚀 Starting AI News Pipeline...")
         print("=" * 50)
         
-        # Step 1: Fetch news
         story = self.fetch_news()
         if not story:
             print("❌ Pipeline failed: Could not fetch news")
             return False
         
-        # Step 2: Generate content
         reddit_post = self.generate_reddit_post(story)
         if not reddit_post:
             print("❌ Pipeline failed: Could not generate Reddit post")
@@ -313,13 +297,8 @@ Generate ONLY the caption with hashtags.
             print("❌ Pipeline failed: Could not generate Instagram caption")
             return False
         
-        # Step 3: Generate image
         image_path = self.generate_image(story)
-        
-        # Step 4: Write to Notion
         self.write_to_notion(story, reddit_post, instagram_caption)
-        
-        # Step 5: Save local files
         self.save_local_files(story, reddit_post, instagram_caption)
         
         print("=" * 50)
