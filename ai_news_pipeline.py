@@ -108,7 +108,7 @@ Generate ONLY the post content, nothing else.
         
         try:
             message = client.messages.create(
-                model="claude-3-5-sonnet-20241022",
+                model="claude-opus-4",
                 max_tokens=500,
                 messages=[{"role": "user", "content": prompt}]
             )
@@ -141,7 +141,7 @@ Generate ONLY the caption with hashtags.
         
         try:
             message = client.messages.create(
-                model="claude-3-5-sonnet-20241022",
+                model="claude-opus-4",
                 max_tokens=200,
                 messages=[{"role": "user", "content": prompt}]
             )
