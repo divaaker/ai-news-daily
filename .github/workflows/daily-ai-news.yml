@@ -1,5 +1,8 @@
 name: Daily AI News Pipeline
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 on:
   schedule:
     # 8 AM IST = 2:30 AM UTC (cron uses UTC)
@@ -32,7 +35,22 @@ jobs:
           CLAUDE_API_KEY: ${{ secrets.CLAUDE_API_KEY }}
           NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
           NOTION_DB_ID: ${{ secrets.NOTION_DB_ID }}
-        run: python ai_news_pipeline.py
+        run: |
+          echo "Starting AI News Pipeline..."
+          python ai_news_pipeline.py
+          echo "Pipeline execution completed"
+      
+      - name: Check output directory
+        if: always()
+        run: |
+          echo "Checking if output directory exists..."
+          if [ -d "output" ]; then
+            echo "✅ Output directory found"
+            ls -la output/
+          else
+            echo "❌ Output directory not created"
+            echo "Pipeline may have failed - check logs above"
+          fi
       
       - name: Upload output artifacts
         if: success()
@@ -45,8 +63,8 @@ jobs:
       - name: Commit and push if changed
         if: success()
         run: |
-          git config user.name "AI News Bot"
-          git config user.email "bot@example.com"
-          git add -A
-          git commit -m "🤖 Daily AI news generated - $(date +'%Y-%m-%d')" || true
-          git push
+          git config --global user.name "AI News Bot"
+          git config --global user.email "bot@example.com"
+          git add -A || true
+          git commit -m "🤖 Daily AI news generated - $(date +'%Y-%m-%d')" || echo "No changes to commit"
+          git push || echo "Nothing to push"
