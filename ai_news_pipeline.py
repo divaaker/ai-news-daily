@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 AI News Daily Automation Pipeline
-Fetches AI/tech news → Generates content via Claude → Posts to Notion
+Fetches AI/tech news → Generates content via Claude → Posts to Notion → Notifies Slack
 """
 
 import os
@@ -17,10 +17,11 @@ import textwrap
 claude_api_key = os.getenv("CLAUDE_API_KEY")
 notion_token = os.getenv("NOTION_TOKEN")
 notion_db_id = os.getenv("NOTION_DB_ID")
+slack_webhook = os.getenv("SLACK_WEBHOOK_URL")
 
 client = Anthropic(api_key=claude_api_key)
 
-# HackerNews API (free, no authentication needed)
+# HackerNews API
 HACKERNEWS_API = "https://hacker-news.firebaseio.com/v0"
 AI_KEYWORDS = ["AI", "machine learning", "LLM", "ChatGPT", "Claude", "neural", "algorithm", "data science", "GPT"]
 
@@ -43,11 +44,10 @@ class AINewsPipeline:
         try:
             response = requests.get(f"{HACKERNEWS_API}/topstories.json", timeout=10)
             response.raise_for_status()
-            story_ids = response.json()[:50]  # Get top 50 stories
+            story_ids = response.json()[:50]
             
             ai_stories = []
             
-            # Find ALL AI/tech related stories
             for story_id in story_ids:
                 item_response = requests.get(f"{HACKERNEWS_API}/item/{story_id}.json", timeout=10)
                 item = item_response.json()
@@ -57,7 +57,6 @@ class AINewsPipeline:
                 
                 title = item.get("title", "").lower()
                 
-                # Check if it matches AI/tech keywords
                 if any(keyword.lower() in title for keyword in AI_KEYWORDS):
                     ai_stories.append({
                         "title": item.get("title", ""),
@@ -68,13 +67,11 @@ class AINewsPipeline:
                         "content": item.get("text", "")
                     })
             
-            # If we found AI stories, pick a random one
             if ai_stories:
                 story = random.choice(ai_stories)
                 print(f"✅ Found: {story['title']}")
                 return story
             
-            # Fallback: return any top story if no AI stories found
             item_response = requests.get(f"{HACKERNEWS_API}/item/{story_ids[0]}.json", timeout=10)
             item = item_response.json()
             
@@ -145,7 +142,7 @@ Requirements:
 - Hook them in first line
 - 1-2 sentences max
 - Add relevant emojis
-- End with 8-10 hashtags (#AI #MachineLearning #Tech #ArtificialIntelligence #Innovation #FutureOfAI #TechNews #AINews etc.)
+- End with 8-10 hashtags
 - Make it shareable and engaging
 
 Generate ONLY the caption with hashtags.
@@ -169,7 +166,7 @@ Generate ONLY the caption with hashtags.
         print("🎨 Generating PNG image...")
         
         try:
-            width, height = 1080, 1350  # Instagram post size
+            width, height = 1080, 1350
             img = Image.new('RGB', (width, height), color='#1a1a1a')
             draw = ImageDraw.Draw(img)
             
@@ -260,8 +257,78 @@ Generate ONLY the caption with hashtags.
             print(f"❌ Error writing to Notion: {e}")
             return False
     
+    def send_slack_notification(self, story):
+        """Send Slack notification that content is ready"""
+        print("📢 Sending Slack notification...")
+        
+        if not slack_webhook:
+            print("⚠️  Slack webhook not configured, skipping notification")
+            return
+        
+        try:
+            notion_url = f"https://www.notion.so/{notion_db_id.replace('-', '')}"
+            
+            slack_message = {
+                "text": "🚀 AI News Content Ready for Review!",
+                "blocks": [
+                    {
+                        "type": "header",
+                        "text": {
+                            "type": "plain_text",
+                            "text": "📰 Daily AI News - Ready to Post"
+                        }
+                    },
+                    {
+                        "type": "section",
+                        "text": {
+                            "type": "mrkdwn",
+                            "text": f"*Story:* {story['title']}\n\n*Source:* {story['source']}"
+                        }
+                    },
+                    {
+                        "type": "section",
+                        "text": {
+                            "type": "mrkdwn",
+                            "text": "✅ Reddit post generated\n✅ Instagram caption generated\n✅ Image created\n✅ Saved to Notion"
+                        }
+                    },
+                    {
+                        "type": "divider"
+                    },
+                    {
+                        "type": "section",
+                        "text": {
+                            "type": "mrkdwn",
+                            "text": "📝 *Please review content in Notion and manually post to Reddit/Instagram*\n\n👉 <https://www.notion.so|Open Notion Database>"
+                        }
+                    },
+                    {
+                        "type": "context",
+                        "elements": [
+                            {
+                                "type": "mrkdwn",
+                                "text": f"Generated: {self.timestamp}"
+                            }
+                        ]
+                    }
+                ]
+            }
+            
+            response = requests.post(slack_webhook, json=slack_message, timeout=10)
+            
+            if response.status_code == 200:
+                print("✅ Slack notification sent")
+                return True
+            else:
+                print(f"⚠️  Slack notification failed: {response.text}")
+                return False
+                
+        except Exception as e:
+            print(f"❌ Error sending Slack notification: {e}")
+            return False
+    
     def save_local_files(self, story, reddit_post, instagram_caption):
-        """Save all content to local files for easy access"""
+        """Save all content to local files"""
         print("💾 Saving local files...")
         
         try:
@@ -315,10 +382,12 @@ Generate ONLY the caption with hashtags.
         image_path = self.generate_image(story)
         self.write_to_notion(story, reddit_post, instagram_caption)
         self.save_local_files(story, reddit_post, instagram_caption)
+        self.send_slack_notification(story)
         
         print("=" * 50)
         print("✅ Pipeline completed successfully!")
         print(f"📂 Output location: {self.output_dir}")
+        print("📢 Slack notification sent!")
         return True
 
 
