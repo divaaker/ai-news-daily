@@ -1,0 +1,52 @@
+name: Daily AI News Pipeline
+
+on:
+  schedule:
+    # 8 AM IST = 2:30 AM UTC (cron uses UTC)
+    - cron: '30 2 * * *'
+  
+  # Allow manual trigger
+  workflow_dispatch:
+
+jobs:
+  generate-content:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+      
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+      
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      
+      - name: Run AI News Pipeline
+        env:
+          NEWSAPI_KEY: ${{ secrets.NEWSAPI_KEY }}
+          CLAUDE_API_KEY: ${{ secrets.CLAUDE_API_KEY }}
+          NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
+          NOTION_DB_ID: ${{ secrets.NOTION_DB_ID }}
+        run: python ai_news_pipeline.py
+      
+      - name: Upload output artifacts
+        if: success()
+        uses: actions/upload-artifact@v3
+        with:
+          name: ai-news-output-${{ github.run_number }}
+          path: output/
+          retention-days: 7
+      
+      - name: Commit and push if changed
+        if: success()
+        run: |
+          git config user.name "AI News Bot"
+          git config user.email "bot@example.com"
+          git add -A
+          git commit -m "🤖 Daily AI news generated - $(date +'%Y-%m-%d')" || true
+          git push
