@@ -7,6 +7,7 @@ Fetches AI/tech news → Generates content via Claude → Posts to Notion
 import os
 import json
 import requests
+import random
 from datetime import datetime
 from anthropic import Anthropic
 from PIL import Image, ImageDraw, ImageFont
@@ -36,14 +37,17 @@ class AINewsPipeline:
         return text.strip()
         
     def fetch_news(self):
-        """Fetch AI/tech story from HackerNews"""
+        """Fetch random AI/tech story from HackerNews"""
         print("📰 Fetching news from HackerNews...")
         
         try:
             response = requests.get(f"{HACKERNEWS_API}/topstories.json", timeout=10)
             response.raise_for_status()
-            story_ids = response.json()[:30]
+            story_ids = response.json()[:50]  # Get top 50 stories
             
+            ai_stories = []
+            
+            # Find ALL AI/tech related stories
             for story_id in story_ids:
                 item_response = requests.get(f"{HACKERNEWS_API}/item/{story_id}.json", timeout=10)
                 item = item_response.json()
@@ -53,18 +57,24 @@ class AINewsPipeline:
                 
                 title = item.get("title", "").lower()
                 
+                # Check if it matches AI/tech keywords
                 if any(keyword.lower() in title for keyword in AI_KEYWORDS):
-                    story = {
+                    ai_stories.append({
                         "title": item.get("title", ""),
                         "description": f"Story from HackerNews with {item.get('score', 0)} points and {item.get('descendants', 0)} comments",
                         "source": "HackerNews",
                         "url": item.get("url", f"https://news.ycombinator.com/item?id={story_id}"),
                         "image": "",
                         "content": item.get("text", "")
-                    }
-                    print(f"✅ Found: {story['title']}")
-                    return story
+                    })
             
+            # If we found AI stories, pick a random one
+            if ai_stories:
+                story = random.choice(ai_stories)
+                print(f"✅ Found: {story['title']}")
+                return story
+            
+            # Fallback: return any top story if no AI stories found
             item_response = requests.get(f"{HACKERNEWS_API}/item/{story_ids[0]}.json", timeout=10)
             item = item_response.json()
             
@@ -159,7 +169,7 @@ Generate ONLY the caption with hashtags.
         print("🎨 Generating PNG image...")
         
         try:
-            width, height = 1080, 1350
+            width, height = 1080, 1350  # Instagram post size
             img = Image.new('RGB', (width, height), color='#1a1a1a')
             draw = ImageDraw.Draw(img)
             
