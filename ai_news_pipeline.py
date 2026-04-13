@@ -21,11 +21,16 @@ slack_webhook = os.getenv("SLACK_WEBHOOK_URL")
 slack_bot_token = os.getenv("SLACK_BOT_TOKEN")
 newsapi_key = os.getenv("NEWSAPI_KEY")
 
+# Verify API key exists
+if not newsapi_key:
+    print("❌ ERROR: NEWSAPI_KEY environment variable is not set!")
+    print("Set it with: export NEWSAPI_KEY='your-key-here'")
+    exit(1)
+
 client = Anthropic(api_key=claude_api_key)
 
 # NewsAPI Configuration
 NEWSAPI_URL = "https://newsapi.org/v2/everything"
-AI_KEYWORDS = ["AI", "machine learning", "LLM", "ChatGPT", "Claude", "neural", "algorithm", "data science", "GPT", "deep learning", "transformer", "neural network", "artificial intelligence"]
 
 class AINewsPipeline:
     def __init__(self):
@@ -51,76 +56,65 @@ class AINewsPipeline:
             from_date_str = from_date.strftime("%Y-%m-%d")
             to_date_str = to_date.strftime("%Y-%m-%d")
             
-            # Search query for AI/tech news
-            query = "artificial intelligence OR machine learning OR LLM OR ChatGPT OR Claude OR AI"
+            print(f"Date range: {from_date_str} to {to_date_str}")
             
+            # Build URL with parameters (similar to your working example)
+            url = NEWSAPI_URL
             params = {
-                'q': query,
+                'q': 'AI OR "artificial intelligence" OR "machine learning" OR ChatGPT OR Claude',
                 'from': from_date_str,
                 'to': to_date_str,
-                'sortBy': 'publishedAt',
+                'sortBy': 'popularity',
                 'language': 'en',
                 'pageSize': 100,
                 'apiKey': newsapi_key
             }
             
-            response = requests.get(NEWSAPI_URL, params=params, timeout=10)
+            print(f"📡 Requesting: {url}")
+            response = requests.get(url, params=params, timeout=10)
+            
+            # Debug: Print response status
+            print(f"Response Status: {response.status_code}")
+            
+            if response.status_code == 401:
+                print("❌ 401 Unauthorized - Check your API key!")
+                print(f"API Key being used: {newsapi_key[:10]}...***")
+                return None
+            
             response.raise_for_status()
             
             data = response.json()
+            print(f"Response: {data.get('status')}")
             
             if data.get('status') != 'ok':
-                print(f"❌ NewsAPI Error: {data.get('message', 'Unknown error')}")
+                error_msg = data.get('message', 'Unknown error')
+                print(f"❌ NewsAPI Error: {error_msg}")
                 return None
             
             articles = data.get('articles', [])
+            print(f"Found {len(articles)} articles total")
             
             if not articles:
-                print(f"⚠️  No articles found from {from_date_str} to {to_date_str}")
+                print(f"⚠️  No articles found")
                 return None
             
-            # Filter and pick random article
-            valid_articles = []
-            for article in articles:
-                title = article.get('title', '').lower()
-                
-                # Check if it matches AI/tech keywords
-                if any(keyword.lower() in title for keyword in AI_KEYWORDS):
-                    valid_articles.append({
-                        "title": article.get('title', ''),
-                        "description": article.get('description', 'No description'),
-                        "source": article.get('source', {}).get('name', 'Unknown'),
-                        "url": article.get('url', ''),
-                        "image": article.get('urlToImage', ''),
-                        "content": article.get('content', ''),
-                        "published_at": article.get('publishedAt', '')
-                    })
+            # Pick random article from results
+            story = random.choice(articles)
+            story_dict = {
+                "title": story.get('title', ''),
+                "description": story.get('description', 'No description'),
+                "source": story.get('source', {}).get('name', 'Unknown'),
+                "url": story.get('url', ''),
+                "image": story.get('urlToImage', ''),
+                "content": story.get('content', ''),
+                "published_at": story.get('publishedAt', '')
+            }
             
-            if valid_articles:
-                story = random.choice(valid_articles)
-                print(f"✅ Found: {story['title']}")
-                return story
-            else:
-                # If no AI articles found, pick any article
-                if articles:
-                    story = random.choice(articles)
-                    story_dict = {
-                        "title": story.get('title', ''),
-                        "description": story.get('description', 'No description'),
-                        "source": story.get('source', {}).get('name', 'Unknown'),
-                        "url": story.get('url', ''),
-                        "image": story.get('urlToImage', ''),
-                        "content": story.get('content', ''),
-                        "published_at": story.get('publishedAt', '')
-                    }
-                    print(f"✅ Found: {story_dict['title']}")
-                    return story_dict
-                else:
-                    print("⚠️  No articles available")
-                    return None
+            print(f"✅ Selected: {story_dict['title'][:50]}...")
+            return story_dict
                 
         except requests.exceptions.RequestException as e:
-            print(f"❌ Error fetching news: {e}")
+            print(f"❌ Network Error: {e}")
             return None
         except Exception as e:
             print(f"❌ Unexpected error: {e}")
