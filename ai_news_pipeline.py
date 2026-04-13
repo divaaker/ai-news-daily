@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 """
 AI News Daily Automation Pipeline
-Fetches AI/tech news → Generates content via Claude → Posts to Notion → Notifies Slack with Image
+Fetches AI/tech news from NewsAPI → Generates content via Claude → Posts to Notion → Notifies Slack with Image
 """
 
 import os
 import json
 import requests
 import random
-from datetime import datetime
+from datetime import datetime, timedelta
 from anthropic import Anthropic
 from PIL import Image, ImageDraw, ImageFont
 import textwrap
@@ -19,12 +19,13 @@ notion_token = os.getenv("NOTION_TOKEN")
 notion_db_id = os.getenv("NOTION_DB_ID")
 slack_webhook = os.getenv("SLACK_WEBHOOK_URL")
 slack_bot_token = os.getenv("SLACK_BOT_TOKEN")
+newsapi_key = os.getenv("NEWSAPI_KEY")
 
 client = Anthropic(api_key=claude_api_key)
 
-# HackerNews API (FREE - no key needed)
-HACKERNEWS_API = "https://hacker-news.firebaseio.com/v0"
-AI_KEYWORDS = ["AI", "machine learning", "LLM", "ChatGPT", "Claude", "neural", "algorithm", "data science", "GPT", "deep learning", "transformer", "neural network"]
+# NewsAPI Configuration
+NEWSAPI_URL = "https://newsapi.org/v2/everything"
+AI_KEYWORDS = ["AI", "machine learning", "LLM", "ChatGPT", "Claude", "neural", "algorithm", "data science", "GPT", "deep learning", "transformer", "neural network", "artificial intelligence"]
 
 class AINewsPipeline:
     def __init__(self):
@@ -39,68 +40,90 @@ class AINewsPipeline:
         return text.strip()
         
     def fetch_news(self):
-        """Fetch random AI/tech story from HackerNews"""
-        print("📰 Fetching news from HackerNews...")
+        """Fetch latest AI news from NewsAPI (2 days max)"""
+        print("📰 Fetching latest news from NewsAPI...")
         
         try:
-            # Get top stories from HackerNews
-            response = requests.get(f"{HACKERNEWS_API}/topstories.json", timeout=10)
+            # Calculate date range (last 2 days)
+            to_date = datetime.now()
+            from_date = to_date - timedelta(days=2)
+            
+            from_date_str = from_date.strftime("%Y-%m-%d")
+            to_date_str = to_date.strftime("%Y-%m-%d")
+            
+            # Search query for AI/tech news
+            query = "artificial intelligence OR machine learning OR LLM OR ChatGPT OR Claude OR AI"
+            
+            params = {
+                'q': query,
+                'from': from_date_str,
+                'to': to_date_str,
+                'sortBy': 'publishedAt',
+                'language': 'en',
+                'pageSize': 100,
+                'apiKey': newsapi_key
+            }
+            
+            response = requests.get(NEWSAPI_URL, params=params, timeout=10)
             response.raise_for_status()
-            story_ids = response.json()[:100]  # Get top 100 stories
             
-            ai_stories = []
+            data = response.json()
             
-            # Find ALL AI/tech related stories
-            for story_id in story_ids:
-                try:
-                    item_response = requests.get(f"{HACKERNEWS_API}/item/{story_id}.json", timeout=5)
-                    item = item_response.json()
-                    
-                    if not item or item.get("deleted") or item.get("dead"):
-                        continue
-                    
-                    title = item.get("title", "").lower()
-                    
-                    # Check if it matches AI/tech keywords
-                    if any(keyword.lower() in title for keyword in AI_KEYWORDS):
-                        ai_stories.append({
-                            "title": item.get("title", ""),
-                            "description": f"From HackerNews: {item.get('score', 0)} points, {item.get('descendants', 0)} comments",
-                            "source": "HackerNews",
-                            "url": item.get("url", f"https://news.ycombinator.com/item?id={story_id}"),
-                            "image": "",
-                            "content": item.get("text", "")
-                        })
-                except:
-                    continue
-            
-            # If we found AI stories, pick a random one
-            if ai_stories:
-                story = random.choice(ai_stories)
-                print(f"✅ Found: {story['title']}")
-                return story
-            
-            # Fallback: return any top story if no AI stories found
-            try:
-                item_response = requests.get(f"{HACKERNEWS_API}/item/{story_ids[0]}.json", timeout=10)
-                item = item_response.json()
-                
-                story = {
-                    "title": item.get("title", ""),
-                    "description": f"Top story on HackerNews",
-                    "source": "HackerNews",
-                    "url": item.get("url", f"https://news.ycombinator.com/item?id={story_ids[0]}"),
-                    "image": "",
-                    "content": item.get("text", "")
-                }
-                print(f"✅ Found: {story['title']}")
-                return story
-            except:
-                print("⚠️  Could not fetch fallback story")
+            if data.get('status') != 'ok':
+                print(f"❌ NewsAPI Error: {data.get('message', 'Unknown error')}")
                 return None
+            
+            articles = data.get('articles', [])
+            
+            if not articles:
+                print(f"⚠️  No articles found from {from_date_str} to {to_date_str}")
+                return None
+            
+            # Filter and pick random article
+            valid_articles = []
+            for article in articles:
+                title = article.get('title', '').lower()
                 
-        except Exception as e:
+                # Check if it matches AI/tech keywords
+                if any(keyword.lower() in title for keyword in AI_KEYWORDS):
+                    valid_articles.append({
+                        "title": article.get('title', ''),
+                        "description": article.get('description', 'No description'),
+                        "source": article.get('source', {}).get('name', 'Unknown'),
+                        "url": article.get('url', ''),
+                        "image": article.get('urlToImage', ''),
+                        "content": article.get('content', ''),
+                        "published_at": article.get('publishedAt', '')
+                    })
+            
+            if valid_articles:
+                story = random.choice(valid_articles)
+                print(f"✅ Found: {story['title']}")
+                return story
+            else:
+                # If no AI articles found, pick any article
+                if articles:
+                    story = random.choice(articles)
+                    story_dict = {
+                        "title": story.get('title', ''),
+                        "description": story.get('description', 'No description'),
+                        "source": story.get('source', {}).get('name', 'Unknown'),
+                        "url": story.get('url', ''),
+                        "image": story.get('urlToImage', ''),
+                        "content": story.get('content', ''),
+                        "published_at": story.get('publishedAt', '')
+                    }
+                    print(f"✅ Found: {story_dict['title']}")
+                    return story_dict
+                else:
+                    print("⚠️  No articles available")
+                    return None
+                
+        except requests.exceptions.RequestException as e:
             print(f"❌ Error fetching news: {e}")
+            return None
+        except Exception as e:
+            print(f"❌ Unexpected error: {e}")
             return None
     
     def generate_reddit_post(self, story):
@@ -293,7 +316,7 @@ Generate ONLY the caption with hashtags.
                         "type": "header",
                         "text": {
                             "type": "plain_text",
-                            "text": "📰 Daily AI News - Ready to Post"
+                            "text": "📰 Latest AI News - Ready to Post"
                         }
                     },
                     {
@@ -357,7 +380,7 @@ Generate ONLY the caption with hashtags.
                         files = {'file': img_file}
                         data = {
                             'token': slack_bot_token,
-                            'channels': '#ai-news',
+                            'channels': 'ai-news',
                             'title': f'Instagram Post - {story["title"][:50]}',
                             'initial_comment': f'📸 Instagram Post for: {story["title"]}'
                         }
