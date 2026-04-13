@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 AI News Daily Automation Pipeline
-Fetches AI/tech news → Generates content via Claude → Posts to Notion → Notifies Slack
+Fetches AI/tech news → Generates content via Claude → Posts to Notion → Notifies Slack with Image
 """
 
 import os
@@ -18,6 +18,7 @@ claude_api_key = os.getenv("CLAUDE_API_KEY")
 notion_token = os.getenv("NOTION_TOKEN")
 notion_db_id = os.getenv("NOTION_DB_ID")
 slack_webhook = os.getenv("SLACK_WEBHOOK_URL")
+slack_bot_token = os.getenv("SLACK_BOT_TOKEN")
 
 client = Anthropic(api_key=claude_api_key)
 
@@ -276,7 +277,7 @@ Generate ONLY the caption with hashtags.
             return False
     
     def send_slack_notification(self, story, image_path=None):
-        """Send Slack notification with image info"""
+        """Send Slack notification with image upload"""
         print("📢 Sending Slack notification...")
         
         if not slack_webhook:
@@ -284,6 +285,7 @@ Generate ONLY the caption with hashtags.
             return
         
         try:
+            # Send main text message via webhook
             slack_message = {
                 "text": "🚀 AI News Content Ready for Review!",
                 "blocks": [
@@ -315,7 +317,7 @@ Generate ONLY the caption with hashtags.
                         "type": "section",
                         "text": {
                             "type": "mrkdwn",
-                            "text": "📸 *Instagram Post Ready* - Check Notion for full details"
+                            "text": "📸 *Instagram Image Below ⬇️*"
                         }
                     },
                     {
@@ -342,12 +344,44 @@ Generate ONLY the caption with hashtags.
             
             response = requests.post(slack_webhook, json=slack_message, timeout=10)
             
-            if response.status_code == 200:
-                print("✅ Slack notification sent")
-                return True
-            else:
+            if response.status_code != 200:
                 print(f"⚠️  Slack notification failed: {response.text}")
                 return False
+            
+            print("✅ Slack text notification sent")
+            
+            # Upload image if bot token is available
+            if image_path and os.path.exists(image_path) and slack_bot_token:
+                try:
+                    with open(image_path, 'rb') as img_file:
+                        files = {'file': img_file}
+                        data = {
+                            'token': slack_bot_token,
+                            'channels': '#ai-news',
+                            'title': f'Instagram Post - {story["title"][:50]}',
+                            'initial_comment': f'📸 Instagram Post for: {story["title"]}'
+                        }
+                        
+                        upload_response = requests.post(
+                            'https://slack.com/api/files.upload',
+                            files=files,
+                            data=data,
+                            timeout=10
+                        )
+                        
+                        if upload_response.json().get('ok'):
+                            print("✅ Image uploaded to Slack")
+                            return True
+                        else:
+                            print(f"⚠️  Image upload failed: {upload_response.json()}")
+                            return False
+                            
+                except Exception as img_err:
+                    print(f"⚠️  Could not upload image: {img_err}")
+                    return False
+            else:
+                print("⚠️  Slack bot token not configured, skipping image upload")
+                return True
                 
         except Exception as e:
             print(f"❌ Error sending Slack notification: {e}")
@@ -419,13 +453,13 @@ Generate ONLY the caption with hashtags.
         # Step 5: Save local files
         self.save_local_files(story, reddit_post, instagram_caption)
         
-        # Step 6: Send Slack notification
+        # Step 6: Send Slack notification with image
         self.send_slack_notification(story, image_path)
         
         print("=" * 50)
         print("✅ Pipeline completed successfully!")
         print(f"📂 Output location: {self.output_dir}")
-        print("📢 Slack notification sent!")
+        print("📢 Slack notification sent with image!")
         return True
 
 
