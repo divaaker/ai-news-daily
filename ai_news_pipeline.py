@@ -374,7 +374,7 @@ Generate ONLY the caption with hashtags.
                         files = {'file': img_file}
                         data = {
                             'token': slack_bot_token,
-                            'channels': 'ai-news',
+                            'channels': 'daily-ai-news',
                             'title': f'Instagram Post - {story["title"][:50]}',
                             'initial_comment': f'📸 Instagram Post for: {story["title"]}'
                         }
